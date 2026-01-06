@@ -1,0 +1,17 @@
+{
+  "name": "government-benefits-finder",
+  "version": "1.0.0",
+  "description": "대한민국 정부 혜택 찾기 웹앱",
+  "scripts": {
+    "dev": "concurrently \"npm run server\" \"npm run client\"",
+    "server": "cd server && npm run dev",
+    "client": "cd client && npm run dev",
+    "install-all": "npm install && cd server && npm install && cd ../client && npm install"
+  },
+  "keywords": ["정부혜택", "공공서비스", "청년정책"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
