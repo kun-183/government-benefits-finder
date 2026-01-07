@@ -1,15 +1,14 @@
 // 사용자 조건에 맞는 서비스 필터링
+
+const escapeRegExp = (str) => str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 export const filterServicesByConditions = (services, conditions) => {
-  if (!services || services.length === 0) {
-    return [];
-  }
+  if (!services || services.length === 0) return [];
 
   return services.filter(service => {
     // 조건이 모두 비어있으면 전체 표시
     const hasAnyCondition = Object.values(conditions).some(val => val !== '');
-    if (!hasAnyCondition) {
-      return true;
-    }
+    if (!hasAnyCondition) return true;
 
     // 각 필드를 소문자로 변환하여 검색
     const 서비스내용 = (service.서비스내용 || '').toLowerCase();
@@ -17,62 +16,66 @@ export const filterServicesByConditions = (services, conditions) => {
     const 선정기준 = (service.선정기준 || '').toLowerCase();
     const 서비스목적요약 = (service.서비스목적요약 || '').toLowerCase();
     const 신청방법 = (service.신청방법 || '').toLowerCase();
+    const 기타 = `${service.서비스명 || ''} ${service.소관기관명 || ''} ${service.접수기관명 || ''}`.toLowerCase();
 
     // 모든 텍스트 합치기
-    const allText = `${서비스내용} ${지원대상} ${선정기준} ${서비스목적요약} ${신청방법}`;
-
-    let matches = true;
+    const allText = `${서비스내용} ${지원대상} ${선정기준} ${서비스목적요약} ${신청방법} ${기타}`;
 
     // 나이 조건
     if (conditions.age) {
       const age = parseInt(conditions.age);
 
       // 나이 범위 추출 (예: "만 19세 ~ 34세", "39세 이하", "40세 이상")
-      const agePattern = /(\d+)세?\s*[~-]\s*(\d+)세?|(\d+)세?\s*이하|(\d+)세?\s*이상|만?\s*(\d+)세?/g;
+      const agePattern = /(\d{1,3})\s*세?\s*[~-]\s*(\d{1,3})\s*세?|(\d{1,3})\s*세?\s*이하|(\d{1,3})\s*세?\s*이상|만?\s*(\d{1,3})\s*세?/g;
       const ageMatches = allText.match(agePattern);
 
-      if (ageMatches) {
+      if (ageMatches && ageMatches.length > 0) {
         let ageMatch = false;
 
         ageMatches.forEach(match => {
-          // 범위 (예: 19세~34세)
-          const rangeMatch = match.match(/(\d+)세?\s*[~-]\s*(\d+)세?/);
+          const rangeMatch = match.match(/(\d{1,3})\s*세?\s*[~-]\s*(\d{1,3})\s*세?/);
           if (rangeMatch) {
             const min = parseInt(rangeMatch[1]);
             const max = parseInt(rangeMatch[2]);
             if (age >= min && age <= max) ageMatch = true;
           }
 
-          // 이하 (예: 39세 이하)
-          const belowMatch = match.match(/(\d+)세?\s*이하/);
+          const belowMatch = match.match(/(\d{1,3})\s*세?\s*이하/);
           if (belowMatch) {
             const max = parseInt(belowMatch[1]);
             if (age <= max) ageMatch = true;
           }
 
-          // 이상 (예: 40세 이상)
-          const aboveMatch = match.match(/(\d+)세?\s*이상/);
+          const aboveMatch = match.match(/(\d{1,3})\s*세?\s*이상/);
           if (aboveMatch) {
             const min = parseInt(aboveMatch[1]);
             if (age >= min) ageMatch = true;
           }
+
+          const singleMatch = match.match(/만?\s*(\d{1,3})\s*세?/);
+          if (singleMatch) {
+            const value = parseInt(singleMatch[1]);
+            if (age === value) ageMatch = true;
+          }
         });
 
-        if (!ageMatch) matches = false;
+        if (!ageMatch) return false;
+      } else {
+        // 연령 관련 명시가 없을 때는 기존처럼 통과시키되, '연령무관' 반영
+        if (/(^|\s|\W)(연령무관|연령 제한 없음|연령제한없음)($|\s|\W)/.test(allText) === false) {
+          // no explicit age info; keep previous behavior (do not exclude)
+        }
       }
     }
 
     // 지역 조건
     if (conditions.region) {
       const region = conditions.region.toLowerCase();
-      if (!allText.includes(region) && !allText.includes('전국')) {
-        matches = false;
-      }
+      if (!allText.includes(region) && !allText.includes('전국')) return false;
     }
 
     // 취업 상태
     if (conditions.employment) {
-      const employment = conditions.employment.toLowerCase();
       const keywords = {
         '미취업': ['미취업', '실업', '구직'],
         '취업': ['취업', '재직', '근로'],
@@ -81,32 +84,27 @@ export const filterServicesByConditions = (services, conditions) => {
         '창업': ['창업', '사업자']
       };
 
-      const searchWords = keywords[conditions.employment] || [employment];
-      const employmentMatch = searchWords.some(word => allText.includes(word));
+      const searchWords = keywords[conditions.employment] || [conditions.employment];
+      const employmentMatch = searchWords.some(word => new RegExp(`(^|\\s|\\W)${escapeRegExp(word)}($|\\s|\\W)`).test(allText));
 
-      if (!employmentMatch && !allText.includes('제한없음') && !allText.includes('무관')) {
-        matches = false;
-      }
+      if (!employmentMatch && !/제한없음|무관/.test(allText)) return false;
     }
 
-    // 소득 수준
+    // 소득 수준 (정교한 패턴 사용)
     if (conditions.income) {
-      const incomeKeywords = {
-        '기초생활수급자': ['기초생활수급', '수급자', '기초수급'],
-        '차상위': ['차상위'],
-        '중위소득50': ['중위소득', '50%', '50'],
-        '중위소득80': ['중위소득', '80%', '80'],
-        '중위소득100': ['중위소득', '100%', '100'],
-        '중위소득150': ['중위소득', '150%', '150'],
-        '제한없음': []
+      const incomePatterns = {
+        '기초생활수급자': /(기초생활수급|수급자|기초수급)/,
+        '차상위': /차상위/,
+        '중위소득50': /(중위소득.*50%?|50\s*%)/,
+        '중위소득80': /(중위소득.*80%?|80\s*%)/,
+        '중위소득100': /(중위소득.*100%?|100\s*%)/,
+        '중위소득150': /(중위소득.*150%?|150\s*%)/,
+        '제한없음': null
       };
 
-      const searchWords = incomeKeywords[conditions.income] || [];
-      if (searchWords.length > 0) {
-        const incomeMatch = searchWords.some(word => allText.includes(word));
-        if (!incomeMatch && !allText.includes('소득무관') && !allText.includes('제한없음')) {
-          matches = false;
-        }
+      const pat = incomePatterns[conditions.income];
+      if (pat) {
+        if (!pat.test(allText) && !/소득무관|제한없음/.test(allText)) return false;
       }
     }
 
@@ -121,36 +119,27 @@ export const filterServicesByConditions = (services, conditions) => {
       };
 
       const searchWords = educationKeywords[conditions.education] || [];
-      if (searchWords.length > 0 && !searchWords.some(word => allText.includes(word))) {
-        // 학력 언급이 없으면 통과
-        const hasEducationMention = allText.includes('학력') || allText.includes('졸업');
-        if (hasEducationMention) {
-          matches = false;
-        }
+      if (searchWords.length > 0 && !searchWords.some(word => new RegExp(`(^|\\s|\\W)${escapeRegExp(word)}($|\\s|\\W)`).test(allText))) {
+        const hasEducationMention = /(^|\s|\W)(학력|졸업|학위)($|\s|\W)/.test(allText);
+        if (hasEducationMention) return false;
       }
     }
 
-    // 자녀 유무
+    // 자녀 유무 - '있음'은 자녀 관련 언급이 반드시 있어야 함
     if (conditions.hasChildren === '있음') {
-      if (allText.includes('자녀') || allText.includes('아동') || allText.includes('육아')) {
-        // 자녀 관련 내용이 있으면 통과
-      } else {
-        // 자녀 언급이 없으면 제한이 없는 것으로 간주하여 통과
-      }
+      if (!/(^|\s|\W)(자녀|아동|육아|양육)($|\s|\W)/.test(allText)) return false;
+    } else if (conditions.hasChildren === '없음') {
+      if (/(^|\s|\W)(자녀|아동|육아|양육)($|\s|\W)/.test(allText) && !/제외/.test(allText)) return false;
     }
 
     // 장애 여부
     if (conditions.disability === '해당') {
-      if (!allText.includes('장애')) {
-        // 장애 언급이 없으면 제한이 없는 것으로 간주하여 통과
-      }
+      if (!/(^|\s|\W)(장애|장애인)($|\s|\W)/.test(allText)) return false;
     } else if (conditions.disability === '비해당') {
-      if (allText.includes('장애인') && !allText.includes('제외')) {
-        matches = false;
-      }
+      if (/(^|\s|\W)장애인($|\s|\W)/.test(allText) && !/제외/.test(allText)) return false;
     }
 
-    return matches;
+    return true;
   });
 };
 

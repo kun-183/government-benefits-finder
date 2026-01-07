@@ -3,6 +3,8 @@ import axios from 'axios';
 import PolicyList from './components/PolicyList';
 import PolicyDetail from './components/PolicyDetail';
 import UserConditionForm from './components/UserConditionForm';
+import SearchBar from './components/SearchBar';
+import FilterSection from './components/FilterSection';
 import { filterServicesByConditions } from './utils/filterServices';
 
 const API_BASE_URL = 'http://localhost:5000/api';
@@ -27,8 +29,37 @@ function App() {
     perPage: 100 // 더 많은 데이터를 가져와서 필터링
   });
 
+  const [searchKeyword, setSearchKeyword] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('');
+  const [selectedPolicyType, setSelectedPolicyType] = useState('');
+
+  const [categories] = useState([
+    { code: '일자리', name: '일자리' },
+    { code: '주거', name: '주거' },
+    { code: '교육', name: '교육' },
+    { code: '복지', name: '복지' },
+    { code: '문화', name: '문화' }
+  ]);
+
+  const [policyTypes] = useState([
+    { code: '지원사업', name: '지원사업' },
+    { code: '일자리', name: '일자리' },
+    { code: '상담', name: '상담' },
+    { code: '정책자금', name: '정책자금' },
+    { code: '시설', name: '시설·공간' }
+  ]);
+
+  const handleSearch = (keyword) => {
+    setSearchKeyword(keyword);
+  };
+
+  const handleFilterChange = (type, value) => {
+    if (type === 'category') setSelectedCategory(value);
+    else if (type === 'policyType') setSelectedPolicyType(value);
+  };
+
   // 공공서비스 검색
-  const searchServices = async () => {
+  const searchServices = async () => { 
     setLoading(true);
     setError(null);
 
@@ -75,8 +106,37 @@ function App() {
 
   // 필터링된 서비스 목록 (useMemo로 최적화)
   const filteredServices = useMemo(() => {
-    return filterServicesByConditions(services, userConditions);
-  }, [services, userConditions]);
+    let result = filterServicesByConditions(services, userConditions);
+
+    // 검색 키워드로 필터
+    if (searchKeyword) {
+      const kw = searchKeyword.toLowerCase();
+      result = result.filter((srv) => {
+        const text = `${srv.서비스명 || ''} ${srv.서비스내용 || ''} ${srv.서비스목적요약 || ''} ${srv.소관기관명 || ''}`.toLowerCase();
+        return text.includes(kw);
+      });
+    }
+
+    // 카테고리 필터 (서비스 설명/유형에서 매칭)
+    if (selectedCategory) {
+      const cat = selectedCategory.toLowerCase();
+      result = result.filter((srv) => {
+        const text = `${srv.서비스목적요약 || ''} ${srv.서비스유형 || ''} ${srv.정책분야 || ''}`.toLowerCase();
+        return text.includes(cat);
+      });
+    }
+
+    // 정책 유형 필터
+    if (selectedPolicyType) {
+      const pt = selectedPolicyType.toLowerCase();
+      result = result.filter((srv) => {
+        const text = `${srv.서비스유형 || ''} ${srv.사업유형 || ''}`.toLowerCase();
+        return text.includes(pt);
+      });
+    }
+
+    return result;
+  }, [services, userConditions, searchKeyword, selectedCategory, selectedPolicyType]);
 
   useEffect(() => {
     searchServices();
@@ -95,6 +155,20 @@ function App() {
       <main className="container mx-auto px-4 py-8">
         {/* 사용자 조건 입력 폼 */}
         <UserConditionForm onConditionChange={handleConditionChange} />
+
+        {/* 검색 및 필터 */}
+        <div className="mb-6">
+          <SearchBar onSearch={handleSearch} />
+          <div className="mt-4">
+            <FilterSection
+              categories={categories}
+              policyTypes={policyTypes}
+              selectedCategory={selectedCategory}
+              selectedPolicyType={selectedPolicyType}
+              onFilterChange={handleFilterChange}
+            />
+          </div>
+        </div>
 
         {/* 필터링 결과 표시 */}
         {!loading && services.length > 0 && (
